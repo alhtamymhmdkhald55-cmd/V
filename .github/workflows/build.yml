@@ -1,0 +1,78 @@
+name: Build APK
+
+
+on:
+push:
+workflow_dispatch:
+
+
+jobs:
+build:
+runs-on: ubuntu-latest
+
+
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+
+  - name: Find and extract ZIP
+    run: |
+      set -e
+      ZIP_FILE=$(find . -maxdepth 3 -type f -name "*.zip" | head -n 1)
+
+      if [ -z "$ZIP_FILE" ]; then
+        echo "ERROR: No ZIP file found in the repository."
+        exit 1
+      fi
+
+      echo "Found ZIP: $ZIP_FILE"
+      mkdir -p proj
+      unzip -oq "$ZIP_FILE" -d proj
+
+      echo "Extracted files:"
+      find proj -maxdepth 4 -type f | head -n 100
+
+  - name: Locate Android Gradle project
+    run: |
+      set -e
+      ANDROID_DIR=$(find proj -type f -name gradlew -print -quit | xargs -r dirname)
+
+      if [ -z "$ANDROID_DIR" ]; then
+        ANDROID_DIR=$(find proj -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs -r dirname)
+      fi
+
+      if [ -z "$ANDROID_DIR" ] || [ ! -d "$ANDROID_DIR" ]; then
+        echo "ERROR: No Android Gradle project found in ZIP."
+        echo "The ZIP may contain a Godot project instead of a native Android project."
+        exit 1
+      fi
+
+      echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+      echo "Android project: $ANDROID_DIR"
+
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
+
+  - name: Build APK
+    run: |
+      cd "$ANDROID_DIR"
+      if [ -f gradlew ]; then
+        chmod +x gradlew
+        ./gradlew assembleDebug
+      else
+        gradle assembleDebug
+      fi
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: NeonCity-APK
+      path: |
+        proj/**/build/outputs/apk/debug/*.apk
+      if-no-files-found: error
+
+
+
